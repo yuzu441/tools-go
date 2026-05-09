@@ -1,0 +1,16 @@
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: true
+  jobs:
+    # ── Go: format → vet ──
+    - name: golang
+      glob: "**/*.go"
+      group:
+        piped: true
+        jobs:
+          - name: "go:fmt"
+            run: gofmt -w {staged_files}
+            stage_fixed: true
+          - name: "go:vet"
+            run: go vet ./...

@@ -26,3 +26,6 @@ go.work.sum
 
 # Local issue notes (not tracked)
 issues/
+
+# lefthook local override (not tracked)
+lefthook-local.yml

@@ -36,6 +36,21 @@ go build ./...
 go vet ./...
 ```
 
+### lefthook（Git フック）
+
+[lefthook](https://github.com/evilmartians/lefthook) を `go.mod` の `tool` ディレクティブで管理しています。クローン直後に一度だけ以下を実行して Git フックを登録してください。
+
+```bash
+go tool lefthook install
+```
+
+登録後、`git commit` 時に以下が自動で走ります。
+
+- `gofmt -w`: ステージ済み `*.go` を整形し、修正があれば再 stage
+- `go vet ./...`: モジュール全体の静的解析
+
+個別にフックの挙動をローカルで上書きしたい場合は `lefthook-local.yml` を作成してください（`.gitignore` 済み）。
+
 ## ライセンス
 
 [MIT License](./LICENSE)
