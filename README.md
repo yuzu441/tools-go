@@ -51,6 +51,12 @@ go tool lefthook install
 
 個別にフックの挙動をローカルで上書きしたい場合は `lefthook-local.yml` を作成してください（`.gitignore` 済み）。
 
+## 収録ツール
+
+| ツール | 概要 |
+| --- | --- |
+| [translate-meta](./translate-meta/) | `skills-jp/`（日本語原稿）→ `skills/`（英訳）の翻訳追従状態を管理する CLI |
+
 ## ライセンス
 
 [MIT License](./LICENSE)
