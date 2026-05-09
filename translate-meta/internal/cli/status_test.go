@@ -23,6 +23,34 @@ func createTempSkill(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// makeSkillFixture creates skills/<name> and skills-jp/<name> under cfg, placing
+// the given files only on the skills-jp side. The skills side is left empty.
+func makeSkillFixture(t *testing.T, skillName string, files map[string]string) Config {
+	t.Helper()
+	root := t.TempDir()
+	cfg := Config{
+		SkillsDir:   filepath.Join(root, "skills"),
+		SkillsJPDir: filepath.Join(root, "skills-jp"),
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.SkillsDir, skillName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jpDir := filepath.Join(cfg.SkillsJPDir, skillName)
+	if err := os.MkdirAll(jpDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range files {
+		fullPath := filepath.Join(jpDir, name)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return cfg
+}
+
 func TestHashDir(t *testing.T) {
 	ctx := t.Context()
 
@@ -113,42 +141,78 @@ func TestHashDir(t *testing.T) {
 func TestRunStatus(t *testing.T) {
 	ctx := t.Context()
 
-	tests := []struct {
-		name     string
-		args     []string
-		wantCode int
-	}{
-		{
-			name:     "引数なしでERROR",
-			args:     []string{},
-			wantCode: ERROR,
-		},
-		{
-			name:     "引数過多でERROR",
-			args:     []string{"a", "b"},
-			wantCode: ERROR,
-		},
-		{
-			name:     "存在しないディレクトリでERROR",
-			args:     []string{"/nonexistent"},
-			wantCode: ERROR,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			code := RunStatus(ctx, tt.args)
-			if code != tt.wantCode {
-				t.Errorf("RunStatus(%v) = %d, want %d", tt.args, code, tt.wantCode)
-			}
-		})
-	}
-
-	t.Run("有効なディレクトリでUP_TO_DATE", func(t *testing.T) {
-		dir := createTempSkill(t, map[string]string{"readme.md": "content"})
-		code := RunStatus(ctx, []string{dir})
-		if code != UP_TO_DATE {
-			t.Errorf("RunStatus = %d, want %d (UP_TO_DATE)", code, UP_TO_DATE)
+	t.Run("引数なしでERROR", func(t *testing.T) {
+		cfg := Config{SkillsDir: t.TempDir(), SkillsJPDir: t.TempDir()}
+		if got := RunStatus(ctx, cfg, []string{}); got != ERROR {
+			t.Errorf("RunStatus = %d, want %d", got, ERROR)
 		}
 	})
+
+	t.Run("引数過多でERROR", func(t *testing.T) {
+		cfg := Config{SkillsDir: t.TempDir(), SkillsJPDir: t.TempDir()}
+		if got := RunStatus(ctx, cfg, []string{"a", "b"}); got != ERROR {
+			t.Errorf("RunStatus = %d, want %d", got, ERROR)
+		}
+	})
+
+	t.Run(".translate-meta が無いとUNTRANSLATED", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		if got := RunStatus(ctx, cfg, []string{"foo"}); got != UNTRANSLATED {
+			t.Errorf("RunStatus = %d, want %d (UNTRANSLATED)", got, UNTRANSLATED)
+		}
+	})
+
+	t.Run("skills-jp が無いとERROR", func(t *testing.T) {
+		// skills/<name>/.translate-meta exists but skills-jp/<name> does not.
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		writeMeta(t, cfg, "foo", "deadbeef")
+		if err := os.RemoveAll(filepath.Join(cfg.SkillsJPDir, "foo")); err != nil {
+			t.Fatal(err)
+		}
+		if got := RunStatus(ctx, cfg, []string{"foo"}); got != ERROR {
+			t.Errorf("RunStatus = %d, want %d (ERROR)", got, ERROR)
+		}
+	})
+
+	t.Run("ハッシュ一致でUP_TO_DATE", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		hash, err := hashDir(ctx, filepath.Join(cfg.SkillsJPDir, "foo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeMeta(t, cfg, "foo", hash)
+
+		if got := RunStatus(ctx, cfg, []string{"foo"}); got != UP_TO_DATE {
+			t.Errorf("RunStatus = %d, want %d (UP_TO_DATE)", got, UP_TO_DATE)
+		}
+	})
+
+	t.Run("ハッシュ不一致でNEEDS_UPDATE", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		writeMeta(t, cfg, "foo", "stale-hash")
+
+		if got := RunStatus(ctx, cfg, []string{"foo"}); got != NEEDS_UPDATE {
+			t.Errorf("RunStatus = %d, want %d (NEEDS_UPDATE)", got, NEEDS_UPDATE)
+		}
+	})
+
+	t.Run("空メタファイルでNEEDS_UPDATE", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		writeMeta(t, cfg, "foo", "")
+
+		if got := RunStatus(ctx, cfg, []string{"foo"}); got != NEEDS_UPDATE {
+			t.Errorf("RunStatus = %d, want %d (NEEDS_UPDATE)", got, NEEDS_UPDATE)
+		}
+	})
+}
+
+func writeMeta(t *testing.T, cfg Config, skillName, content string) {
+	t.Helper()
+	dir := filepath.Join(cfg.SkillsDir, skillName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, metaFileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

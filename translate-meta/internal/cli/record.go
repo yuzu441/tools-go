@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func RunRecord(ctx context.Context, args []string) int {
+func RunRecord(ctx context.Context, cfg Config, args []string) int {
 	if len(args) != 1 {
 		printRecordHelp()
 		return ERROR
@@ -21,15 +21,7 @@ func RunRecord(ctx context.Context, args []string) int {
 	defer span.End()
 
 	skillName := args[0]
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.ErrorContext(ctx, err.Error())
-		return ERROR
-	}
-
-	claudeDirPath := filepath.Join(home, ".claude")
-	jpSkillDirPath := filepath.Join(claudeDirPath, "skills-jp", skillName)
+	jpSkillDirPath := filepath.Join(cfg.SkillsJPDir, skillName)
 
 	hash, err := hashDir(ctx, jpSkillDirPath)
 	if err != nil {
@@ -38,8 +30,13 @@ func RunRecord(ctx context.Context, args []string) int {
 	}
 
 	status, _ := otelhelper.InSpan(ctx, "write metadata", func(ctx context.Context, _ trace.Span) (_ int, retErr error) {
-		skillMetaPath := filepath.Join(claudeDirPath, "skills", skillName, metaFileName)
-		if err := os.WriteFile(skillMetaPath, []byte(hash), 0644); err != nil {
+		skillMetaDir := filepath.Join(cfg.SkillsDir, skillName)
+		if err := os.MkdirAll(skillMetaDir, 0o755); err != nil {
+			slog.ErrorContext(ctx, err.Error())
+			return ERROR, nil
+		}
+		skillMetaPath := filepath.Join(skillMetaDir, metaFileName)
+		if err := os.WriteFile(skillMetaPath, []byte(hash), 0o644); err != nil {
 			slog.ErrorContext(ctx, err.Error())
 			return ERROR, nil
 		}

@@ -26,7 +26,7 @@ const (
 
 const metaFileName = ".translate-meta"
 
-func RunStatus(ctx context.Context, args []string) int {
+func RunStatus(ctx context.Context, cfg Config, args []string) int {
 	if len(args) != 1 {
 		printStautsHelp()
 		return ERROR
@@ -37,15 +37,7 @@ func RunStatus(ctx context.Context, args []string) int {
 
 	skillName := args[0]
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.ErrorContext(ctx, err.Error())
-		return ERROR
-	}
-
-	claudeDir := filepath.Join(home, ".claude")
-
-	skillsMetaPath := filepath.Join(claudeDir, "skills", skillName, metaFileName)
+	skillsMetaPath := filepath.Join(cfg.SkillsDir, skillName, metaFileName)
 	if _, err := os.Stat(skillsMetaPath); os.IsNotExist(err) {
 		return UNTRANSLATED
 	}
@@ -54,12 +46,12 @@ func RunStatus(ctx context.Context, args []string) int {
 		slog.ErrorContext(ctx, err.Error())
 		return ERROR
 	}
-	// metaデータがないので強制的に作る
+	// Empty meta content: treat as needs-update so the caller forces a re-record.
 	if transHash == "" {
 		return NEEDS_UPDATE
 	}
 
-	skillsJPPath := filepath.Join(claudeDir, "skills-jp", skillName)
+	skillsJPPath := filepath.Join(cfg.SkillsJPDir, skillName)
 	hash, err := hashDir(ctx, skillsJPPath)
 	otelhelper.RecordError(span, err)
 	if err != nil {
@@ -153,7 +145,7 @@ func readMetaFile(path string) (string, error) {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		// TODO: 外部でNotExsistsチェックをしてもらう想定でerrorをラップする。またerrorライブラリも調査
+		// TODO: wrap the error so callers can run their own NotExist check; also evaluate error libraries.
 		return "", err
 	}
 
@@ -162,7 +154,7 @@ func readMetaFile(path string) (string, error) {
 		return "", err
 	}
 
-	// TODO: 本来は`key=value`形式の想定なのでパース処理を追加する
+	// TODO: the meta file is intended to be `key=value` formatted; add a proper parser.
 	return string(content), nil
 }
 
