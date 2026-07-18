@@ -16,6 +16,8 @@ func RunHelp(args []string) int {
 		printStautsHelp()
 	case "record":
 		printRecordHelp()
+	case "manifest":
+		printManifestHelp()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command for help: %s\n\n", args[0])
 		printRootHelp()

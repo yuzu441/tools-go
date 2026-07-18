@@ -35,34 +35,52 @@ func RunStatus(ctx context.Context, cfg Config, args []string) int {
 	ctx, span := otelhelper.StartSpan(ctx, "cli.status")
 	defer span.End()
 
-	skillName := args[0]
-
-	skillsMetaPath := filepath.Join(cfg.SkillsDir, skillName, metaFileName)
-	if _, err := os.Stat(skillsMetaPath); os.IsNotExist(err) {
-		return UNTRANSLATED
-	}
-	transHash, err := readMetaFile(skillsMetaPath)
+	state, err := translationState(ctx, cfg, args[0])
+	otelhelper.RecordError(span, err)
 	if err != nil {
 		slog.ErrorContext(ctx, err.Error())
 		return ERROR
 	}
+	return state
+}
+
+func translationState(ctx context.Context, cfg Config, skillName string) (int, error) {
+	skillsMetaPath := filepath.Join(cfg.SkillsDir, skillName, metaFileName)
+	if _, err := os.Stat(skillsMetaPath); os.IsNotExist(err) {
+		return UNTRANSLATED, nil
+	}
+	transHash, err := readMetaFile(skillsMetaPath)
+	if err != nil {
+		return ERROR, err
+	}
 	// Empty meta content: treat as needs-update so the caller forces a re-record.
 	if transHash == "" {
-		return NEEDS_UPDATE
+		return NEEDS_UPDATE, nil
 	}
 
 	skillsJPPath := filepath.Join(cfg.SkillsJPDir, skillName)
 	hash, err := hashDir(ctx, skillsJPPath)
-	otelhelper.RecordError(span, err)
 	if err != nil {
-		slog.Error(err.Error())
-		return ERROR
+		return ERROR, err
 	}
 
 	if hash != transHash {
-		return NEEDS_UPDATE
+		return NEEDS_UPDATE, nil
 	}
-	return UP_TO_DATE
+	return UP_TO_DATE, nil
+}
+
+func stateLabel(state int) string {
+	switch state {
+	case UP_TO_DATE:
+		return "up-to-date"
+	case NEEDS_UPDATE:
+		return "needs-update"
+	case UNTRANSLATED:
+		return "untranslated"
+	default:
+		panic(fmt.Sprintf("unexpected state: %d", state))
+	}
 }
 
 func hashDir(ctx context.Context, root string) (_ string, retErr error) {

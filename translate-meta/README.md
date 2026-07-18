@@ -16,6 +16,7 @@ go install github.com/yuzu441/tools-go/translate-meta@latest
 | --- | --- |
 | `status <skill-name>` | 翻訳が最新かを判定する |
 | `record <skill-name>` | 現在の `skills-jp/<skill-name>/` のハッシュを `skills/<skill-name>/.translate-meta` に記録する |
+| `manifest <skill-name>` | 翻訳状態とファイル一覧を JSON で出力する |
 | `help [<command>]` | 全体 / サブコマンドの help を表示する |
 
 ### `status`
@@ -43,12 +44,35 @@ translate-meta status coding-rules
 translate-meta record coding-rules
 ```
 
+### `manifest`
+
+`skills-jp/<skill-name>/` の翻訳状態とファイル一覧を JSON で標準出力に出力します。
+
+```bash
+translate-meta manifest coding-rules
+```
+
+出力例:
+
+```json
+{"skill":"coding-rules","state":"up-to-date","files":["README.md","references/example.md"]}
+```
+
+| フィールド | 説明 |
+| --- | --- |
+| `skill` | スキル名 |
+| `state` | `up-to-date` / `needs-update` / `untranslated` |
+| `files` | `skills-jp/<skill-name>/` 配下の相対パス一覧（ソート済み） |
+
+`status` と異なり、終了コードは成功時 `0` / エラー時 `3` のみを表し、翻訳状態は `state` フィールドで判定します。
+
 ### `help`
 
 ```bash
 translate-meta help
 translate-meta help status
 translate-meta help record
+translate-meta help manifest
 ```
 
 ## パス解決の優先順位
