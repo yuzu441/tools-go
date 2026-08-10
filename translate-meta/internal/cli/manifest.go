@@ -16,9 +16,10 @@ import (
 )
 
 type fileEntry struct {
-	Path   string `json:"path"`
-	Policy string `json:"policy"`
-	Reason string `json:"reason,omitempty"`
+	Path    string `json:"path"`
+	Policy  string `json:"policy"`
+	Reason  string `json:"reason,omitempty"`
+	Changed bool   `json:"changed"`
 }
 
 type manifestOutput struct {
@@ -77,7 +78,7 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 
 	skillName := args[0]
 
-	state, err := translationState(ctx, cfg, skillName)
+	resolved, err := resolveMetaState(ctx, cfg, skillName)
 	otelhelper.RecordError(span, err)
 	if err != nil {
 		slog.ErrorContext(ctx, err.Error())
@@ -86,6 +87,12 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 
 	files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, skillName))
 	if err != nil {
+		otelhelper.RecordError(span, err)
+		slog.ErrorContext(ctx, err.Error())
+		return ERROR
+	}
+
+	if err := applyChangedFlags(cfg, skillName, resolved, files); err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
 		return ERROR
@@ -100,7 +107,7 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 
 	out := manifestOutput{
 		Skill:   skillName,
-		State:   stateLabel(state),
+		State:   stateLabel(resolved.State),
 		Files:   files,
 		Orphans: orphans,
 	}
@@ -111,6 +118,34 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 	}
 
 	return 0
+}
+
+// applyChangedFlags sets Changed on each entry in files based on resolved.
+// A pre-v2 meta (absent or legacy) carries no per-file granularity, so every
+// non-preserve file can only mirror the whole-target verdict.
+func applyChangedFlags(cfg Config, skillName string, resolved resolvedMetaState, files []fileEntry) error {
+	if !resolved.IsV2 {
+		changed := resolved.State != UP_TO_DATE
+		for i := range files {
+			if files[i].Policy != "preserve" {
+				files[i].Changed = changed
+			}
+		}
+		return nil
+	}
+
+	changes, _, err := computeFileChanges(cfg, skillName, resolved.V2)
+	if err != nil {
+		return err
+	}
+	byPath := make(map[string]bool, len(changes))
+	for _, c := range changes {
+		byPath[c.Path] = c.Changed
+	}
+	for i := range files {
+		files[i].Changed = byPath[files[i].Path]
+	}
+	return nil
 }
 
 func listManifestFiles(root string) ([]fileEntry, error) {
@@ -249,8 +284,12 @@ OUTPUT:
     A single JSON object on stdout:
         skill    Skill name
         state    up-to-date | needs-update | untranslated
-        files    Sorted list of {path, policy, reason} under skills-jp/<skill-name>/
-                 policy: preserve | copy | translate
+        files    Sorted list of {path, policy, reason, changed} under
+                 skills-jp/<skill-name>/
+                 policy:   preserve | copy | translate
+                 changed:  whether this file differs from what was last
+                           recorded (always false for policy "preserve";
+                           always true when nothing has been recorded yet)
         orphans  Sorted, slash-separated paths under skills/<skill-name>/
                  with no corresponding file under skills-jp/<skill-name>/
 

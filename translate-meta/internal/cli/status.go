@@ -45,29 +45,11 @@ func RunStatus(ctx context.Context, cfg Config, args []string) int {
 }
 
 func translationState(ctx context.Context, cfg Config, skillName string) (int, error) {
-	skillsMetaPath := filepath.Join(cfg.SkillsDir, skillName, metaFileName)
-	if _, err := os.Stat(skillsMetaPath); os.IsNotExist(err) {
-		return UNTRANSLATED, nil
-	}
-	transHash, err := readMetaFile(skillsMetaPath)
+	resolved, err := resolveMetaState(ctx, cfg, skillName)
 	if err != nil {
 		return ERROR, err
 	}
-	// Empty meta content: treat as needs-update so the caller forces a re-record.
-	if transHash == "" {
-		return NEEDS_UPDATE, nil
-	}
-
-	skillsJPPath := filepath.Join(cfg.SkillsJPDir, skillName)
-	hash, err := hashDir(ctx, skillsJPPath)
-	if err != nil {
-		return ERROR, err
-	}
-
-	if hash != transHash {
-		return NEEDS_UPDATE, nil
-	}
-	return UP_TO_DATE, nil
+	return resolved.State, nil
 }
 
 func stateLabel(state int) string {
@@ -172,7 +154,8 @@ func readMetaFile(path string) (string, error) {
 		return "", err
 	}
 
-	// TODO: the meta file is intended to be `key=value` formatted; add a proper parser.
+	// Content is either legacy (bare hex digest) or v2 JSON; see meta.go for
+	// the format decision and isLegacyMeta/parseMetaV2 for parsing.
 	return string(content), nil
 }
 
