@@ -1,6 +1,6 @@
 # translate-meta
 
-`skills-jp/`（日本語原稿）と `skills/`（英訳）の翻訳追従状態を管理する CLI です。`skills-jp/<skill>/` の内容を `skills/<skill>/.translate-meta`（JSON v2 形式）に記録し、原稿が変わったかを `status` で判定します。`policy: translate` の Markdown ファイルは段落・見出し単位の「セグメント」に分割して追跡するため、`segments status` / `segments assemble` を使うと、変更されたセグメントだけを翻訳し、未変更部分はツールが機械的に再構成できます。
+`skills-jp/`（日本語原稿）と `skills/`（英訳）の翻訳追従状態を管理する CLI です。`skills-jp/<skill>/` の内容を `skills/<skill>/.translate-meta`（JSON v2 形式）に記録し、原稿が変わったかを `status` で判定します。`policy: translate` の Markdown ファイルは段落・見出し・コードブロック単位の「セグメント」に分割して追跡するため、`segments status` / `segments assemble` を使うと、変更されたセグメントだけを翻訳し、未変更部分はツールが機械的に再構成できます。
 
 同じコマンド群は `--agents-dir` / `--agents-jp-dir` を指定すると、`agents-jp/<name>.md` ↔ `agents/<name>.md` という単一ファイルの「エージェント」翻訳にもそのまま使えます。詳細は[エージェントモード](#エージェントモード)を参照してください。
 
@@ -86,7 +86,7 @@ translate-meta manifest coding-rules
 
 ### `segments status`
 
-前回の `record` 以降に `policy: translate` ファイルのどのセグメント（見出し・段落単位の翻訳単位）が変わったかを、読み取り専用の work-list として JSON で出力します。未変更セグメントの本文は出力されません（LLM に不要なテキストを渡さないため）。
+前回の `record` 以降に `policy: translate` ファイルのどのセグメント（見出し・段落・コードブロック単位の翻訳単位）が変わったかを、読み取り専用の work-list として JSON で出力します。未変更セグメントの本文は出力されません（LLM に不要なテキストを渡さないため）。フェンスコードブロックはコメントやプレースホルダを英語に訳す対象のため、行単位ではなくブロック全体が 1 セグメントとして扱われます。
 
 ```bash
 translate-meta segments status coding-rules
@@ -119,6 +119,8 @@ translate-meta segments status coding-rules
 `state` が `needs-bootstrap` の場合、メタファイルが存在しないか旧形式のままでセグメント単位の差分が取れないことを示します。先に `record` を実行してください。
 
 終了コードは `0` (up-to-date) / `1` (needs-update) / `2` (needs-bootstrap) / `3` (error) です。
+
+**移行に関する注意**: コードブロックをセグメント化する以前のバージョンで記録された `.translate-meta` には、コードブロックの `jp_hash`/`en_hash` が存在しません。そのため `segments status` はそれらのコードブロックを常に `added`（追加）として報告します。これは安全側の挙動です（実際には未変更でも翻訳を求め直すだけで、無警告で状態を壊すことはありません）。`record` を再実行すればコードブロックのハッシュが記録され、以降は通常どおり差分だけが報告されます。
 
 ### `segments assemble`
 
