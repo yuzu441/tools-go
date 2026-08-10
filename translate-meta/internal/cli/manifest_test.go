@@ -121,12 +121,98 @@ func TestRunManifest_Files(t *testing.T) {
 	}
 
 	want := []fileEntry{
-		{Path: "SKILL.md", Policy: "copy", Reason: "english"},
-		{Path: "sub/a.md", Policy: "copy", Reason: "english"},
+		{Path: "SKILL.md", Policy: "copy", Reason: "english", Changed: true},
+		{Path: "sub/a.md", Policy: "copy", Reason: "english", Changed: true},
 	}
 	if !slices.Equal(out.Files, want) {
 		t.Errorf("Files = %v, want %v", out.Files, want)
 	}
+}
+
+func TestApplyChangedFlags(t *testing.T) {
+	t.Run("記録が無い(untranslated)場合はpreserve以外が全てchanged=true", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{
+			"a.md":           "hello",
+			"templates/t.md": "テンプレート",
+		})
+		files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, "foo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := applyChangedFlags(cfg, "foo", resolvedMetaState{State: UNTRANSLATED}, files); err != nil {
+			t.Fatal(err)
+		}
+
+		for _, f := range files {
+			want := f.Policy != "preserve"
+			if f.Changed != want {
+				t.Errorf("%s: Changed = %v, want %v", f.Path, f.Changed, want)
+			}
+		}
+	})
+
+	t.Run("legacyメタでup-to-dateなら全てchanged=false", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, "foo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := applyChangedFlags(cfg, "foo", resolvedMetaState{State: UP_TO_DATE}, files); err != nil {
+			t.Fatal(err)
+		}
+		if files[0].Changed {
+			t.Errorf("Changed = true, want false")
+		}
+	})
+
+	t.Run("legacyメタでneeds-updateなら全てchanged=true", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
+		files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, "foo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := applyChangedFlags(cfg, "foo", resolvedMetaState{State: NEEDS_UPDATE}, files); err != nil {
+			t.Fatal(err)
+		}
+		if !files[0].Changed {
+			t.Errorf("Changed = false, want true")
+		}
+	})
+
+	t.Run("v2メタはファイル毎に個別のchangedを反映する", func(t *testing.T) {
+		cfg := makeSkillFixture(t, "foo", map[string]string{
+			"changed.md":   "changed content",
+			"unchanged.md": "unchanged content",
+		})
+		files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, "foo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		meta := metaV2{Version: 2, Files: map[string]fileMeta{
+			"changed.md":   {Policy: "copy", Hash: "sha256:stale"},
+			"unchanged.md": {Policy: "copy", Hash: hashSegment("unchanged content")},
+		}}
+		resolved := resolvedMetaState{State: NEEDS_UPDATE, V2: meta, IsV2: true}
+
+		if err := applyChangedFlags(cfg, "foo", resolved, files); err != nil {
+			t.Fatal(err)
+		}
+
+		byPath := map[string]bool{}
+		for _, f := range files {
+			byPath[f.Path] = f.Changed
+		}
+		if !byPath["changed.md"] {
+			t.Errorf("changed.md: Changed = false, want true")
+		}
+		if byPath["unchanged.md"] {
+			t.Errorf("unchanged.md: Changed = true, want false")
+		}
+	})
 }
 
 func TestRunManifest_Integration(t *testing.T) {
@@ -429,10 +515,10 @@ func TestRunManifest_EndToEnd(t *testing.T) {
 	}
 
 	wantFiles := []fileEntry{
-		{Path: "SKILL.md", Policy: "translate"},
-		{Path: "helper.js", Policy: "copy", Reason: "code"},
-		{Path: "references/en.md", Policy: "copy", Reason: "english"},
-		{Path: "templates/tmpl.md", Policy: "preserve"},
+		{Path: "SKILL.md", Policy: "translate", Changed: false},
+		{Path: "helper.js", Policy: "copy", Reason: "code", Changed: false},
+		{Path: "references/en.md", Policy: "copy", Reason: "english", Changed: false},
+		{Path: "templates/tmpl.md", Policy: "preserve", Changed: false},
 	}
 	if !slices.Equal(out.Files, wantFiles) {
 		t.Errorf("Files = %v, want %v", out.Files, wantFiles)

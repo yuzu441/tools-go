@@ -16,9 +16,10 @@ import (
 )
 
 type fileEntry struct {
-	Path   string `json:"path"`
-	Policy string `json:"policy"`
-	Reason string `json:"reason,omitempty"`
+	Path    string `json:"path"`
+	Policy  string `json:"policy"`
+	Reason  string `json:"reason,omitempty"`
+	Changed bool   `json:"changed"`
 }
 
 type manifestOutput struct {
@@ -77,21 +78,27 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 
 	skillName := args[0]
 
-	state, err := translationState(ctx, cfg, skillName)
+	resolved, err := resolveMetaState(ctx, cfg, skillName)
 	otelhelper.RecordError(span, err)
 	if err != nil {
 		slog.ErrorContext(ctx, err.Error())
 		return ERROR
 	}
 
-	files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, skillName))
+	files, err := cfg.ListFiles(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
 		return ERROR
 	}
 
-	orphans, err := listOrphans(cfg.SkillsDir, cfg.SkillsJPDir, skillName)
+	if err := applyChangedFlags(cfg, skillName, resolved, files); err != nil {
+		otelhelper.RecordError(span, err)
+		slog.ErrorContext(ctx, err.Error())
+		return ERROR
+	}
+
+	orphans, err := cfg.Orphans(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
@@ -100,7 +107,7 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 
 	out := manifestOutput{
 		Skill:   skillName,
-		State:   stateLabel(state),
+		State:   stateLabel(resolved.State),
 		Files:   files,
 		Orphans: orphans,
 	}
@@ -111,6 +118,34 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 	}
 
 	return 0
+}
+
+// applyChangedFlags sets Changed on each entry in files based on resolved.
+// A pre-v2 meta (absent or legacy) carries no per-file granularity, so every
+// non-preserve file can only mirror the whole-target verdict.
+func applyChangedFlags(cfg Config, skillName string, resolved resolvedMetaState, files []fileEntry) error {
+	if !resolved.IsV2 {
+		changed := resolved.State != UP_TO_DATE
+		for i := range files {
+			if files[i].Policy != "preserve" {
+				files[i].Changed = changed
+			}
+		}
+		return nil
+	}
+
+	changes, _, err := computeFileChanges(cfg, skillName, resolved.V2)
+	if err != nil {
+		return err
+	}
+	byPath := make(map[string]bool, len(changes))
+	for _, c := range changes {
+		byPath[c.Path] = c.Changed
+	}
+	for i := range files {
+		files[i].Changed = byPath[files[i].Path]
+	}
+	return nil
 }
 
 func listManifestFiles(root string) ([]fileEntry, error) {
@@ -240,24 +275,36 @@ func listOrphans(skillsDir, skillsJPDir, skillName string) ([]string, error) {
 }
 
 func printManifestHelp() {
-	fmt.Println(`Output a JSON manifest describing a skill's translation state, files, and orphans.
+	fmt.Println(`Output a JSON manifest describing a skill's (or agent's) translation
+state, files, and orphans.
 
 USAGE:
     translate-meta manifest <skill-name>
 
 OUTPUT:
     A single JSON object on stdout:
-        skill    Skill name
+        skill    Skill (or agent) name
         state    up-to-date | needs-update | untranslated
-        files    Sorted list of {path, policy, reason} under skills-jp/<skill-name>/
-                 policy: preserve | copy | translate
-        orphans  Sorted, slash-separated paths under skills/<skill-name>/
-                 with no corresponding file under skills-jp/<skill-name>/
+        files    Sorted list of {path, policy, reason, changed}:
+                 skills-jp/<skill-name>/ in skill mode, or the single
+                 <skill-name>.md entry under agents-jp/ in agent mode
+                 policy:   preserve | copy | translate
+                 changed:  whether this file differs from what was last
+                           recorded (always false for policy "preserve";
+                           always true when nothing has been recorded yet)
+        orphans  Skill mode: sorted, slash-separated paths under
+                 skills/<skill-name>/ with no corresponding file under
+                 skills-jp/<skill-name>/.
+                 Agent mode: at most [<skill-name>.md], reported only when
+                 a translation-memory record exists for this agent but its
+                 Japanese source has since been deleted. An untracked
+                 English-only agent is never reported as an orphan.
 
 EXIT CODES:
     0  success (regardless of which state was found)
     3  error
 
 EXAMPLE:
-    translate-meta manifest coding-rules`)
+    translate-meta manifest coding-rules
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp manifest reviewer`)
 }
