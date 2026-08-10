@@ -160,7 +160,8 @@ func readMetaFile(path string) (string, error) {
 }
 
 func printStautsHelp() {
-	fmt.Println(`Check whether a skill is up-to-date with its source.
+	fmt.Println(`Check whether a skill (or, with --agents-dir/--agents-jp-dir, an agent) is
+up-to-date with its source.
 
 USAGE:
     translate-meta status <skill-name>
@@ -177,5 +178,6 @@ EXIT CODES:
     3  error
 
 EXAMPLE:
-    translate-meta status coding-rules`)
+    translate-meta status coding-rules
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp status reviewer`)
 }

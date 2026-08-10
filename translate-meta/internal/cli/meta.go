@@ -158,12 +158,12 @@ type resolvedMetaState struct {
 // content is compared as a single whole-target hash, since that format
 // records nothing finer; v2 content is compared file by file.
 func resolveMetaState(ctx context.Context, cfg Config, skillName string) (resolvedMetaState, error) {
-	skillsMetaPath := filepath.Join(cfg.SkillsDir, skillName, metaFileName)
-	if _, err := os.Stat(skillsMetaPath); os.IsNotExist(err) {
+	metaPath := cfg.MetaPath(skillName)
+	if _, err := os.Stat(metaPath); os.IsNotExist(err) {
 		return resolvedMetaState{State: UNTRANSLATED}, nil
 	}
 
-	content, err := readMetaFile(skillsMetaPath)
+	content, err := readMetaFile(metaPath)
 	if err != nil {
 		return resolvedMetaState{}, err
 	}
@@ -173,8 +173,7 @@ func resolveMetaState(ctx context.Context, cfg Config, skillName string) (resolv
 	}
 
 	if isLegacyMeta(content) {
-		skillsJPPath := filepath.Join(cfg.SkillsJPDir, skillName)
-		hash, err := hashDir(ctx, skillsJPPath)
+		hash, err := legacyHash(ctx, cfg, skillName)
 		if err != nil {
 			return resolvedMetaState{}, err
 		}
@@ -221,9 +220,9 @@ type fileChange struct {
 // against meta, and separately reports removedFiles: paths recorded in meta
 // that no longer exist on disk.
 func computeFileChanges(cfg Config, skillName string, meta metaV2) (changes []fileChange, removedFiles []string, err error) {
-	jpRoot := filepath.Join(cfg.SkillsJPDir, skillName)
+	jpRoot := cfg.JPRoot(skillName)
 
-	entries, err := listManifestFiles(jpRoot)
+	entries, err := cfg.ListFiles(skillName)
 	if err != nil {
 		return nil, nil, err
 	}

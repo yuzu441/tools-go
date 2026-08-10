@@ -21,10 +21,11 @@ func RunRecord(ctx context.Context, cfg Config, args []string) int {
 	defer span.End()
 
 	skillName := args[0]
-	jpRoot := filepath.Join(cfg.SkillsJPDir, skillName)
-	enRoot := filepath.Join(cfg.SkillsDir, skillName)
+	jpRoot := cfg.JPRoot(skillName)
+	enRoot := cfg.ENRoot(skillName)
+	metaPath := cfg.MetaPath(skillName)
 
-	entries, err := listManifestFiles(jpRoot)
+	entries, err := cfg.ListFiles(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
@@ -48,11 +49,11 @@ func RunRecord(ctx context.Context, cfg Config, args []string) int {
 			slog.ErrorContext(ctx, err.Error())
 			return ERROR, nil
 		}
-		if err := os.MkdirAll(enRoot, 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(metaPath), 0o755); err != nil {
 			slog.ErrorContext(ctx, err.Error())
 			return ERROR, nil
 		}
-		if err := os.WriteFile(filepath.Join(enRoot, metaFileName), out, 0o644); err != nil {
+		if err := os.WriteFile(metaPath, out, 0o644); err != nil {
 			slog.ErrorContext(ctx, err.Error())
 			return ERROR, nil
 		}
@@ -133,7 +134,8 @@ func degradeToWholeFile(relPath, jpContent string, enSegs, jpSegs []string) file
 }
 
 func printRecordHelp() {
-	fmt.Println(`Save current source state for a skill.
+	fmt.Println(`Save current source state for a skill (or, with
+--agents-dir/--agents-jp-dir, an agent).
 
 USAGE:
     translate-meta record <skill-name>
@@ -147,9 +149,17 @@ DESCRIPTION:
     pre-existing jp/en pairs. A legacy (pre-v2) meta file is upgraded to v2
     automatically the next time record runs.
 
+    With --agents-dir/--agents-jp-dir, <skill-name> is an agent name
+    (without .md), mapping agents-jp/<skill-name>.md to
+    agents/<skill-name>.md. Metadata is written to
+    agents/.translate-meta/<skill-name>.json instead, since agents share a
+    single flat directory rather than one directory per target.
+
 NOTE:
-    Run this after updating the translated files in skills/<skill-name>/.
+    Run this after updating the translated files in skills/<skill-name>/
+    (or agents/<skill-name>.md in agent mode).
 
 EXAMPLE:
-    translate-meta record coding-rules`)
+    translate-meta record coding-rules
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp record reviewer`)
 }

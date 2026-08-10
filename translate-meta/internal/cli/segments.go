@@ -120,10 +120,10 @@ func RunSegmentsStatus(ctx context.Context, cfg Config, args []string) int {
 }
 
 func buildSegmentsFileStatuses(cfg Config, skillName string, meta metaV2) ([]segmentsFileStatus, error) {
-	jpRoot := filepath.Join(cfg.SkillsJPDir, skillName)
-	enRoot := filepath.Join(cfg.SkillsDir, skillName)
+	jpRoot := cfg.JPRoot(skillName)
+	enRoot := cfg.ENRoot(skillName)
 
-	entries, err := listManifestFiles(jpRoot)
+	entries, err := cfg.ListFiles(skillName)
 	if err != nil {
 		return nil, err
 	}
@@ -344,10 +344,10 @@ func RunSegmentsAssemble(ctx context.Context, cfg Config, args []string) int {
 		return ERROR
 	}
 
-	jpRoot := filepath.Join(cfg.SkillsJPDir, skillName)
-	enRoot := filepath.Join(cfg.SkillsDir, skillName)
+	jpRoot := cfg.JPRoot(skillName)
+	enRoot := cfg.ENRoot(skillName)
 
-	entries, err := listManifestFiles(jpRoot)
+	entries, err := cfg.ListFiles(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
@@ -535,6 +535,9 @@ func renderWithReplacements(blocks []block, replacement map[int]string) string {
 func printSegmentsHelp() {
 	fmt.Println(`Segment-level translation-memory subcommands.
 
+Works the same way for a skill or, with --agents-dir/--agents-jp-dir, a
+single agent (agents-jp/<name>.md <-> agents/<name>.md).
+
 USAGE:
     translate-meta segments <SUBCOMMAND>
 
@@ -544,7 +547,8 @@ SUBCOMMANDS:
 
 EXAMPLE:
     translate-meta segments status coding-rules
-    translate-meta help segments status`)
+    translate-meta help segments status
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp segments status reviewer`)
 }
 
 func printSegmentsStatusHelp() {
@@ -569,6 +573,9 @@ OUTPUT:
     "needs-bootstrap" means the skill's .translate-meta is missing or still
     in the legacy (pre-v2) format; run "record" first.
 
+    With --agents-dir/--agents-jp-dir, <skill-name> is an agent name
+    (without .md); "files" then has exactly one entry, for <skill-name>.md.
+
 EXIT CODES:
     0  up-to-date
     1  needs-update
@@ -576,7 +583,8 @@ EXIT CODES:
     3  error
 
 EXAMPLE:
-    translate-meta segments status coding-rules`)
+    translate-meta segments status coding-rules
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp segments status reviewer`)
 }
 
 func printSegmentsAssembleHelp() {
@@ -619,11 +627,15 @@ DESCRIPTION:
     (writing nothing) rather than silently truncating that segment's
     content.
 
+    With --agents-dir/--agents-jp-dir, <skill-name> is an agent name
+    (without .md), and only agents/<skill-name>.md is written.
+
 EXIT CODES:
     0  success
     3  error (incomplete patch, patch entry that assembly doesn't need,
        unreadable patch file, or no v2 record yet)
 
 EXAMPLE:
-    translate-meta segments assemble coding-rules --patch /tmp/patch.txt`)
+    translate-meta segments assemble coding-rules --patch /tmp/patch.txt
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp segments assemble reviewer --patch /tmp/patch.txt`)
 }

@@ -2,6 +2,8 @@
 
 `skills-jp/`（日本語原稿）と `skills/`（英訳）の翻訳追従状態を管理する CLI です。`skills-jp/<skill>/` の内容を `skills/<skill>/.translate-meta`（JSON v2 形式）に記録し、原稿が変わったかを `status` で判定します。`policy: translate` の Markdown ファイルは段落・見出し単位の「セグメント」に分割して追跡するため、`segments status` / `segments assemble` を使うと、変更されたセグメントだけを翻訳し、未変更部分はツールが機械的に再構成できます。
 
+同じコマンド群は `--agents-dir` / `--agents-jp-dir` を指定すると、`agents-jp/<name>.md` ↔ `agents/<name>.md` という単一ファイルの「エージェント」翻訳にもそのまま使えます。詳細は[エージェントモード](#エージェントモード)を参照してください。
+
 ## インストール
 
 ```bash
@@ -20,6 +22,8 @@ go install github.com/yuzu441/tools-go/translate-meta@latest
 | `segments status <skill-name>` | 前回の record 以降に変更されたセグメントの work-list を JSON で出力する（読み取り専用） |
 | `segments assemble <skill-name> --patch <file>` | パッチファイルから `policy: translate` ファイルを再構成する |
 | `help [<command>]` | 全体 / サブコマンドの help を表示する |
+
+各コマンドの `<skill-name>` は、`--agents-dir` / `--agents-jp-dir` を指定した場合は「エージェント名（`.md` を除く）」として扱われます（[エージェントモード](#エージェントモード)参照）。
 
 ### `status`
 
@@ -170,14 +174,31 @@ translate-meta help segments assemble
 
 参照する 2 つのディレクトリは、以下の優先順位で解決されます。
 
-1. フラグ指定（`--skills-dir` / `--skills-jp-dir`）
-2. デフォルト（`<cwd>/skills` / `<cwd>/skills-jp`）
+1. フラグ指定（`--skills-dir` / `--skills-jp-dir`、または `--agents-dir` / `--agents-jp-dir`）
+2. デフォルト（`<cwd>/skills` / `<cwd>/skills-jp`、または `<cwd>/agents` / `<cwd>/agents-jp`）
 
 環境変数による上書きはサポートしません。フラグを指定したい場合は、サブコマンドの**前**に置いてください。
 
 ```bash
 translate-meta --skills-dir ./skills --skills-jp-dir ./skills-jp status coding-rules
 ```
+
+`--skills-dir` / `--skills-jp-dir` と `--agents-dir` / `--agents-jp-dir` は排他です。両系統のフラグを同時に指定するとエラーになります。
+
+## エージェントモード
+
+`--agents-dir` / `--agents-jp-dir` を指定すると、スキル（ディレクトリ単位）ではなくエージェント（単一ファイル）を対象に同じサブコマンドが動作します。`<skill-name>` は `.md` を除いたエージェント名で、`agents-jp/<name>.md` ↔ `agents/<name>.md` の 1 対 1 に対応します。
+
+```bash
+translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp record reviewer
+translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp segments status reviewer
+```
+
+スキルモードとの違いは次の点です。
+
+- **TM の置き場**: `skills/<skill-name>/.translate-meta` ではなく `agents/.translate-meta/<name>.json` に記録されます。`agents/` はエージェントが同じ階層に並ぶ単一の共有ディレクトリのため、エージェントごとのディレクトリを持てません。フォーマットは同じ JSON v2 で、ファイルキーは常に `<name>.md` の 1 エントリだけです。
+- **orphan の判定**: `manifest` の `orphans` は、`agents/<name>.md` に対応する `agents-jp/<name>.md` が無いだけでは orphan と報告しません。`agents/` には翻訳対象ではない英語専用のエージェントが正当に存在するためです。orphan と報告されるのは、`agents/.translate-meta/<name>.json`（TM 記録）が存在するのに `agents-jp/<name>.md`（JP 原稿）が消えている場合だけです。共有ファイルの `agents/DO_NOT_EDIT.txt` と `agents/.translate-meta/` 自体は対象になりません。
+- 変更検出・セグメント分割・diff・assemble のコアロジックはスキルモードと共通です。ファイル探索先と TM の置き場だけがモードによって切り替わります。
 
 ## CI で使うサンプル
 

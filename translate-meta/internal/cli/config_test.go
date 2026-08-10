@@ -87,6 +87,110 @@ func TestResolveRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
+func TestResolve_AgentMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantAgentsDir func(cwd string) string
+		wantJPDir     func(cwd string) string
+		wantRemaining []string
+	}{
+		{
+			name:          "両フラグ指定でフラグ値が採用される",
+			args:          []string{"--agents-dir", "/abs/agents", "--agents-jp-dir", "/abs/agents-jp", "status", "reviewer"},
+			wantAgentsDir: func(_ string) string { return "/abs/agents" },
+			wantJPDir:     func(_ string) string { return "/abs/agents-jp" },
+			wantRemaining: []string{"status", "reviewer"},
+		},
+		{
+			name:          "agents-dir のみ指定で agents-jp-dir は cwd デフォルト",
+			args:          []string{"--agents-dir", "/abs/agents", "record", "reviewer"},
+			wantAgentsDir: func(_ string) string { return "/abs/agents" },
+			wantJPDir:     func(cwd string) string { return filepath.Join(cwd, "agents-jp") },
+			wantRemaining: []string{"record", "reviewer"},
+		},
+		{
+			name:          "agents-jp-dir のみ指定で agents-dir は cwd デフォルト",
+			args:          []string{"--agents-jp-dir", "/abs/agents-jp", "record", "reviewer"},
+			wantAgentsDir: func(cwd string) string { return filepath.Join(cwd, "agents") },
+			wantJPDir:     func(_ string) string { return "/abs/agents-jp" },
+			wantRemaining: []string{"record", "reviewer"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			t.Chdir(cwd)
+
+			cfg, rest, err := Resolve(tt.args)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+
+			if cfg.Mode != ModeAgents {
+				t.Errorf("Mode = %v, want ModeAgents", cfg.Mode)
+			}
+
+			gotAgents := evalOrSelf(t, cfg.AgentsDir)
+			wantAgents := evalOrSelf(t, tt.wantAgentsDir(cwd))
+			if gotAgents != wantAgents {
+				t.Errorf("AgentsDir = %q, want %q", gotAgents, wantAgents)
+			}
+
+			gotJP := evalOrSelf(t, cfg.AgentsJPDir)
+			wantJP := evalOrSelf(t, tt.wantJPDir(cwd))
+			if gotJP != wantJP {
+				t.Errorf("AgentsJPDir = %q, want %q", gotJP, wantJP)
+			}
+
+			if !slicesEqual(rest, tt.wantRemaining) {
+				t.Errorf("remaining = %v, want %v", rest, tt.wantRemaining)
+			}
+		})
+	}
+}
+
+func TestResolve_DefaultsToSkillsMode(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg, _, err := Resolve([]string{"status", "foo"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if cfg.Mode != ModeSkills {
+		t.Errorf("Mode = %v, want ModeSkills", cfg.Mode)
+	}
+}
+
+func TestResolveRejectsMixedModeFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "skills-dir と agents-dir の混在",
+			args: []string{"--skills-dir", "/abs/skills", "--agents-dir", "/abs/agents", "status", "foo"},
+		},
+		{
+			name: "skills-jp-dir と agents-jp-dir の混在",
+			args: []string{"--skills-jp-dir", "/abs/skills-jp", "--agents-jp-dir", "/abs/agents-jp", "status", "foo"},
+		},
+		{
+			name: "skills-dir と agents-jp-dir の混在",
+			args: []string{"--skills-dir", "/abs/skills", "--agents-jp-dir", "/abs/agents-jp", "status", "foo"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if _, _, err := Resolve(tt.args); err == nil {
+				t.Fatal("expected error for mixed skills/agents flags")
+			}
+		})
+	}
+}
+
 func evalOrSelf(t *testing.T, p string) string {
 	t.Helper()
 	abs, err := filepath.EvalSymlinks(p)

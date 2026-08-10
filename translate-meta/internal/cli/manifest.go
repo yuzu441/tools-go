@@ -85,7 +85,7 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 		return ERROR
 	}
 
-	files, err := listManifestFiles(filepath.Join(cfg.SkillsJPDir, skillName))
+	files, err := cfg.ListFiles(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
@@ -98,7 +98,7 @@ func RunManifest(ctx context.Context, cfg Config, args []string) int {
 		return ERROR
 	}
 
-	orphans, err := listOrphans(cfg.SkillsDir, cfg.SkillsJPDir, skillName)
+	orphans, err := cfg.Orphans(skillName)
 	if err != nil {
 		otelhelper.RecordError(span, err)
 		slog.ErrorContext(ctx, err.Error())
@@ -275,28 +275,36 @@ func listOrphans(skillsDir, skillsJPDir, skillName string) ([]string, error) {
 }
 
 func printManifestHelp() {
-	fmt.Println(`Output a JSON manifest describing a skill's translation state, files, and orphans.
+	fmt.Println(`Output a JSON manifest describing a skill's (or agent's) translation
+state, files, and orphans.
 
 USAGE:
     translate-meta manifest <skill-name>
 
 OUTPUT:
     A single JSON object on stdout:
-        skill    Skill name
+        skill    Skill (or agent) name
         state    up-to-date | needs-update | untranslated
-        files    Sorted list of {path, policy, reason, changed} under
-                 skills-jp/<skill-name>/
+        files    Sorted list of {path, policy, reason, changed}:
+                 skills-jp/<skill-name>/ in skill mode, or the single
+                 <skill-name>.md entry under agents-jp/ in agent mode
                  policy:   preserve | copy | translate
                  changed:  whether this file differs from what was last
                            recorded (always false for policy "preserve";
                            always true when nothing has been recorded yet)
-        orphans  Sorted, slash-separated paths under skills/<skill-name>/
-                 with no corresponding file under skills-jp/<skill-name>/
+        orphans  Skill mode: sorted, slash-separated paths under
+                 skills/<skill-name>/ with no corresponding file under
+                 skills-jp/<skill-name>/.
+                 Agent mode: at most [<skill-name>.md], reported only when
+                 a translation-memory record exists for this agent but its
+                 Japanese source has since been deleted. An untracked
+                 English-only agent is never reported as an orphan.
 
 EXIT CODES:
     0  success (regardless of which state was found)
     3  error
 
 EXAMPLE:
-    translate-meta manifest coding-rules`)
+    translate-meta manifest coding-rules
+    translate-meta --agents-dir ./agents --agents-jp-dir ./agents-jp manifest reviewer`)
 }
