@@ -41,6 +41,8 @@ func Run(ctx context.Context, args []string) int {
 		return RunRecord(ctx, cfg, rest[1:])
 	case "manifest":
 		return RunManifest(ctx, cfg, rest[1:])
+	case "segments":
+		return RunSegments(ctx, cfg, rest[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", rest[0])
 		return 1
@@ -63,13 +65,15 @@ FLAGS:
 
 COMMANDS:
     status      Check whether a skill needs translation
-    record      Save current source state after translation
+    record      Save current source state after translation (writes JSON v2 meta)
     manifest    Output a JSON manifest of translation state and files
+    segments    Segment-level translation-memory work-list and reassembly
     help        Show this help or the help of a command
 
 EXAMPLES:
     translate-meta status coding-rules
     translate-meta --skills-dir ./skills --skills-jp-dir ./skills-jp record coding-rules
     translate-meta manifest coding-rules
-    translate-meta help status`)
+    translate-meta segments status coding-rules
+    translate-meta help segments`)
 }
