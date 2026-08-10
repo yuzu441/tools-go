@@ -516,15 +516,16 @@ func ensureTrailingNewline(s string) string {
 }
 
 // renderWithReplacements walks blocks in document order, substituting each
-// blockText block's content from replacement (keyed by translatable-segment
-// index) while copying every other block kind verbatim.
+// translatable block's content from replacement (keyed by
+// translatable-segment index) while copying every other block kind
+// (frontmatter, blank runs) verbatim.
 func renderWithReplacements(blocks []block, replacement map[int]string) string {
 	var b strings.Builder
-	textIndex := 0
+	segIndex := 0
 	for _, blk := range blocks {
-		if blk.Kind == blockText {
-			b.WriteString(replacement[textIndex])
-			textIndex++
+		if isTranslatableBlock(blk.Kind) {
+			b.WriteString(replacement[segIndex])
+			segIndex++
 			continue
 		}
 		b.WriteString(blk.Raw)
@@ -570,8 +571,15 @@ OUTPUT:
                                        {index, en_text}
                      unchanged_count   Count of segments needing no action
 
+    A segment is a paragraph, heading, or whole fenced code block; a code
+    block is tracked as a single segment rather than split per line.
+
     "needs-bootstrap" means the skill's .translate-meta is missing or still
-    in the legacy (pre-v2) format; run "record" first.
+    in the legacy (pre-v2) format; run "record" first. A .translate-meta
+    recorded before code blocks were tracked as segments has no hashes for
+    them, so this command reports every code block as "added" until
+    "record" runs again — the safe direction, since it only asks for
+    unnecessary re-translation rather than silently missing a change.
 
     With --agents-dir/--agents-jp-dir, <skill-name> is an agent name
     (without .md); "files" then has exactly one entry, for <skill-name>.md.
@@ -606,6 +614,10 @@ PATCH FILE FORMAT:
         Reference text.
 
 DESCRIPTION:
+    A segment is a paragraph, heading, or whole fenced code block; a code
+    block is tracked as a single segment rather than split per line, so a
+    patch entry for one supplies the entire translated block.
+
     Every added segment reported by "segments status" must be present in
     the patch. If any is missing, nothing is written and the command
     fails: partial assembly is refused so translation memory is never

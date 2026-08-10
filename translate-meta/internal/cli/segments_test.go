@@ -245,6 +245,136 @@ func TestRunSegmentsStatus(t *testing.T) {
 	})
 }
 
+// TestSegmentTM_CodeBlocks covers the three regressions that follow from
+// treating fenced code blocks as untranslated, verbatim-copied blocks: an
+// assembled code block reverting to the Japanese master's bytes, a hand
+// edit inside an English code block going unreported, and an edit to a
+// Japanese code block being silently treated as up-to-date.
+func TestSegmentTM_CodeBlocks(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("未変更コードブロックはassembleでEN側のバイト列が保持される(JPコメントに戻らない)", func(t *testing.T) {
+		jp := "見出し\n\n```python\n# コメント\nprint(1)\n```\n\n段落です\n"
+		cfg := makeSkillFixture(t, "foo", map[string]string{"SKILL.md": jp})
+		enCode := "```python\n# comment\nprint(1)\n```\n"
+		writeSkillsFileAt(t, cfg, "foo", "SKILL.md", "Heading\n\n"+enCode+"\nA paragraph.\n")
+		if got := RunRecord(ctx, cfg, []string{"foo"}); got != 0 {
+			t.Fatalf("RunRecord = %d, want 0", got)
+		}
+
+		// Insert a new JP paragraph; the code block itself is untouched.
+		edited := "見出し\n\n```python\n# コメント\nprint(1)\n```\n\n新しい段落\n\n段落です\n"
+		if err := os.WriteFile(filepath.Join(cfg.SkillsJPDir, "foo", "SKILL.md"), []byte(edited), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var statusOut segmentsStatusOutput
+		stdout := captureStdout(t, func() {
+			RunSegmentsStatus(ctx, cfg, []string{"foo"})
+		})
+		if err := json.Unmarshal([]byte(stdout), &statusOut); err != nil {
+			t.Fatalf("invalid JSON: %v\noutput: %q", err, stdout)
+		}
+		if len(statusOut.Files) != 1 || len(statusOut.Files[0].Changed) != 1 {
+			t.Fatalf("expected exactly one changed segment, got %+v", statusOut.Files)
+		}
+		changedIndex := statusOut.Files[0].Changed[0].Index
+
+		patchFile := filepath.Join(t.TempDir(), "patch.txt")
+		patchContent := fmt.Sprintf("=== translate-meta-patch: SKILL.md #%d ===\nA new paragraph.\n", changedIndex)
+		if err := os.WriteFile(patchFile, []byte(patchContent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if got := RunSegmentsAssemble(ctx, cfg, []string{"foo", "--patch", patchFile}); got != 0 {
+			t.Fatalf("RunSegmentsAssemble = %d, want 0", got)
+		}
+
+		assembled, err := os.ReadFile(filepath.Join(cfg.SkillsDir, "foo", "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "Heading\n\n```python\n# comment\nprint(1)\n```\n\nA new paragraph.\n\nA paragraph.\n"
+		if string(assembled) != want {
+			t.Errorf("assembled = %q, want %q (the code block must keep the English file's bytes, not the Japanese source's)", assembled, want)
+		}
+	})
+
+	t.Run("EN側コードブロックの直接編集はdirect_editsに現れる", func(t *testing.T) {
+		jp := "見出し\n\n```python\nprint(1)\n```\n\n段落です\n"
+		cfg := makeSkillFixture(t, "foo", map[string]string{"SKILL.md": jp})
+		writeSkillsFileAt(t, cfg, "foo", "SKILL.md", "Heading\n\n```python\nprint(1)\n```\n\nA paragraph.\n")
+		if got := RunRecord(ctx, cfg, []string{"foo"}); got != 0 {
+			t.Fatalf("RunRecord = %d, want 0", got)
+		}
+
+		// Hand-edit the English code block directly, without touching JP.
+		handEdited := "Heading\n\n```python\nprint(2)  # hand edited\n```\n\nA paragraph.\n"
+		if err := os.WriteFile(filepath.Join(cfg.SkillsDir, "foo", "SKILL.md"), []byte(handEdited), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out segmentsStatusOutput
+		stdout := captureStdout(t, func() {
+			RunSegmentsStatus(ctx, cfg, []string{"foo"})
+		})
+		if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+			t.Fatalf("invalid JSON: %v\noutput: %q", err, stdout)
+		}
+		f := out.Files[0]
+		if len(f.DirectEdits) != 1 {
+			t.Fatalf("DirectEdits = %v, want exactly 1 entry", f.DirectEdits)
+		}
+		if f.DirectEdits[0].Index != 1 {
+			t.Errorf("DirectEdits[0].Index = %d, want 1", f.DirectEdits[0].Index)
+		}
+		wantENText := "```python\nprint(2)  # hand edited\n```\n"
+		if f.DirectEdits[0].ENText != wantENText {
+			t.Errorf("DirectEdits[0].ENText = %q, want %q", f.DirectEdits[0].ENText, wantENText)
+		}
+	})
+
+	t.Run("JP側コードブロックの編集はchangedとして検出される(サイレントにup-to-dateにならない)", func(t *testing.T) {
+		jp := "見出し\n\n```python\nprint(1)\n```\n\n段落です\n"
+		cfg := makeSkillFixture(t, "foo", map[string]string{"SKILL.md": jp})
+		writeSkillsFileAt(t, cfg, "foo", "SKILL.md", "Heading\n\n```python\nprint(1)\n```\n\nA paragraph.\n")
+		if got := RunRecord(ctx, cfg, []string{"foo"}); got != 0 {
+			t.Fatalf("RunRecord = %d, want 0", got)
+		}
+
+		// Edit only the JP code block's content; the surrounding text is untouched.
+		edited := "見出し\n\n```python\nprint(999)\n```\n\n段落です\n"
+		if err := os.WriteFile(filepath.Join(cfg.SkillsJPDir, "foo", "SKILL.md"), []byte(edited), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out segmentsStatusOutput
+		stdout := captureStdout(t, func() {
+			code := RunSegmentsStatus(ctx, cfg, []string{"foo"})
+			if code != NEEDS_UPDATE {
+				t.Fatalf("RunSegmentsStatus = %d, want %d (NEEDS_UPDATE); a JP code block edit must not be silently up-to-date", code, NEEDS_UPDATE)
+			}
+		})
+		if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+			t.Fatalf("invalid JSON: %v\noutput: %q", err, stdout)
+		}
+		f := out.Files[0]
+		if len(f.Changed) != 1 {
+			t.Fatalf("Changed = %v, want exactly 1 entry", f.Changed)
+		}
+		if f.Changed[0].Index != 1 {
+			t.Errorf("Changed[0].Index = %d, want 1", f.Changed[0].Index)
+		}
+		wantJPText := "```python\nprint(999)\n```\n"
+		if f.Changed[0].JPText != wantJPText {
+			t.Errorf("Changed[0].JPText = %q, want %q", f.Changed[0].JPText, wantJPText)
+		}
+		if f.UnchangedCount != 2 {
+			t.Errorf("UnchangedCount = %d, want 2 (heading and paragraph unaffected)", f.UnchangedCount)
+		}
+	})
+}
+
 func TestRunSegmentsAssemble(t *testing.T) {
 	ctx := t.Context()
 

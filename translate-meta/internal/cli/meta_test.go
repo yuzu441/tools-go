@@ -279,6 +279,34 @@ func TestComputeFileChanges(t *testing.T) {
 		}
 	})
 
+	t.Run("translateファイルはコードブロックのみの編集でもchanged=true(plain statusがサイレントにup-to-dateにならない)", func(t *testing.T) {
+		original := "見出し\n\n```python\nprint(1)\n```\n\n段落です\n"
+		blocks, err := splitSegments(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		origSegs := translatableSegments(blocks)
+
+		// Edit only the fenced code block's content; heading and paragraph
+		// are untouched.
+		edited := "見出し\n\n```python\nprint(999)\n```\n\n段落です\n"
+		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": edited})
+		meta := metaV2{Version: 2, Files: map[string]fileMeta{
+			"a.md": {Policy: "translate", Segments: []segmentPair{
+				{JPHash: hashSegment(origSegs[0]), ENHash: "sha256:en0"},
+				{JPHash: hashSegment(origSegs[1]), ENHash: "sha256:en1"},
+				{JPHash: hashSegment(origSegs[2]), ENHash: "sha256:en2"},
+			}},
+		}}
+		changes, _, err := computeFileChanges(cfg, "foo", meta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !changes[0].Changed {
+			t.Errorf("changes[0].Changed = false, want true (code block content changed)")
+		}
+	})
+
 	t.Run("記録にあるが現在存在しないファイルはremovedFilesに入る", func(t *testing.T) {
 		cfg := makeSkillFixture(t, "foo", map[string]string{"a.md": "hello"})
 		meta := metaV2{Version: 2, Files: map[string]fileMeta{

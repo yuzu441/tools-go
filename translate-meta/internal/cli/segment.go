@@ -9,8 +9,8 @@ import (
 )
 
 // blockKind classifies one segment of a Markdown document produced by
-// splitSegments. Only blockText is translatable; the others are carried
-// through verbatim so that join(split(x)) == x always holds.
+// splitSegments. Frontmatter and blank runs are carried through verbatim so
+// that join(split(x)) == x always holds.
 type blockKind int
 
 const (
@@ -77,13 +77,27 @@ func joinSegments(blocks []block) string {
 	return b.String()
 }
 
-// translatableSegments returns the raw text of every blockText block, in
+// isTranslatableBlock reports whether a block of the given kind is a
+// translation-memory-tracked segment. Fenced code blocks are included
+// because the project's translation rules require comment lines and
+// placeholders inside them to be translated to English; a whole block is one
+// segment rather than one per line. Frontmatter is excluded because repo
+// convention keeps it in Japanese.
+//
+// Every traversal that assigns segment indices must decide inclusion through
+// this function, or the indices it produces will not line up with the ones
+// callers computed elsewhere.
+func isTranslatableBlock(kind blockKind) bool {
+	return kind == blockText || kind == blockCode
+}
+
+// translatableSegments returns the raw text of every translatable block in
 // document order. These are the only units subject to translation-memory
-// tracking; frontmatter, code, and blank runs are excluded.
+// tracking.
 func translatableSegments(blocks []block) []string {
 	segs := make([]string, 0, len(blocks))
 	for _, b := range blocks {
-		if b.Kind == blockText {
+		if isTranslatableBlock(b.Kind) {
 			segs = append(segs, b.Raw)
 		}
 	}

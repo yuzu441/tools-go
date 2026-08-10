@@ -173,6 +173,20 @@ func TestTranslatableSegments(t *testing.T) {
 	}
 }
 
+func TestTranslatableSegments_IncludesCodeBlocks(t *testing.T) {
+	blocks := mustSplit(t, "Intro.\n\n```python\nprint(1)\n```\n\nOutro.\n")
+	got := translatableSegments(blocks)
+	want := []string{"Intro.\n", "```python\nprint(1)\n```\n", "Outro.\n"}
+	if len(got) != len(want) {
+		t.Fatalf("translatableSegments = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("segment[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestHashSegment(t *testing.T) {
 	h1 := hashSegment("hello")
 	h2 := hashSegment("hello")
