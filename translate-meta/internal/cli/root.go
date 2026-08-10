@@ -17,6 +17,11 @@ func Run(ctx context.Context, args []string) int {
 		return 0
 	}
 
+	if hasVersionFlag(args) {
+		printVersion()
+		return 0
+	}
+
 	cfg, rest, err := Resolve(args)
 	if err != nil {
 		slog.ErrorContext(ctx, err.Error())
@@ -58,6 +63,7 @@ USAGE:
     translate-meta [FLAGS] <COMMAND> <target-name>
 
 FLAGS:
+    --version               Print the translate-meta version and exit
     --skills-dir <DIR>      Directory containing translated skills
                             (default: <cwd>/skills)
     --skills-jp-dir <DIR>   Directory containing source skills

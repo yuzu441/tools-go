@@ -12,6 +12,15 @@ go install github.com/yuzu441/tools-go/translate-meta@latest
 
 特定バージョンに固定したい場合は `@vX.Y.Z`（例: `@v0.1.0`）でタグを指定できます。
 
+インストール済みのバージョンは `--version` で確認できます。
+
+```bash
+$ translate-meta --version
+translate-meta v2.0.0
+```
+
+バージョンは `internal/cli/version.go` の定数としてツール側に持ちます。monorepo で複数ツールを扱うため、リポジトリ単位の git tag ではツールごとのバージョニングができず、インストールも `@main` 参照を前提としているためです。リリース時はこの定数を手で更新します。
+
 ## コマンド一覧
 
 | コマンド | 説明 |
@@ -22,6 +31,8 @@ go install github.com/yuzu441/tools-go/translate-meta@latest
 | `segments status <skill-name>` | 前回の record 以降に変更されたセグメントの work-list を JSON で出力する（読み取り専用） |
 | `segments assemble <skill-name> --patch <file>` | パッチファイルから `policy: translate` ファイルを再構成する |
 | `help [<command>]` | 全体 / サブコマンドの help を表示する |
+
+`--version` はコマンドではなくフラグで、指定するとバージョンを表示して終了します（他のコマンドや引数と併記しても、バージョン表示だけを行います）。
 
 各コマンドの `<skill-name>` は、`--agents-dir` / `--agents-jp-dir` を指定した場合は「エージェント名（`.md` を除く）」として扱われます（[エージェントモード](#エージェントモード)参照）。
 
