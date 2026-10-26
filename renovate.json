@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "Update opentelemetry-go and opentelemetry-go-contrib in a single PR, since contrib depends on specific otel versions and the monorepo presets split them into separate groups",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["go.opentelemetry.io/**"],
+      "groupName": "opentelemetry-go"
+    }
   ]
 }
